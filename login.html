@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Giriş - Sessiz Düşünceler</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h1>Admin Girişi</h1>
+        <form id="login-form">
+            <label class="admin-label">E-posta</label>
+            <input class="login-input" type="email" name="email" required>
+            <label class="admin-label">Şifre</label>
+            <input class="login-input" type="password" name="password" required>
+            <button class="login-button" type="submit">Giriş Yap</button>
+            <p id="error-message" class="login-message error"></p>
+        </form>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyA-cOHc81SNMX_u0CmpLtnKRS4sNedlN9E",
+            authDomain: "blog-sayfa.firebaseapp.com",
+            projectId: "blog-sayfa",
+            storageBucket: "blog-sayfa.appspot.com",
+            messagingSenderId: "610980157440",
+            appId: "1:610980157440:web:2409920a6b9ecc28efa0e5",
+            measurementId: "G-EF2PN951C7"
+        };
+        
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+
+        const form = document.getElementById('login-form');
+        const errorMessage = document.getElementById('error-message');
+
+        onAuthStateChanged(auth, user => {
+            if (user) {
+                location.href = "admin.html";
+            }
+        });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = form.email.value;
+            const password = form.password.value;
+            
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+                // Başarılı girişten sonra onAuthStateChanged yönlendirme yapacaktır
+            } catch (error) {
+                switch (error.code) {
+                    case 'auth/invalid-email':
+                        errorMessage.textContent = 'Geçersiz e-posta adresi.';
+                        break;
+                    case 'auth/user-not-found':
+                    case 'auth/wrong-password':
+                        errorMessage.textContent = 'E-posta veya şifre yanlış.';
+                        break;
+                    case 'auth/network-request-failed':
+                        errorMessage.textContent = 'Ağ hatası. İnternet bağlantınızı kontrol edin.';
+                        break;
+                    default:
+                        errorMessage.textContent = 'Giriş başarısız oldu. Lütfen tekrar deneyin.';
+                        console.error(error);
+                }
+            }
+        });
+    </script>
+</body>
+</html>

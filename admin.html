@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Yönetim Paneli - Sanal Köşe</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdn.jsdelivr.net/npm/quill@2/dist/quill.snow.css" rel="stylesheet">
+</head>
+<body>
+    <header class="container header">
+        <a class="brand" href="index.html">Sanal Köşe</a>
+        <nav>
+            <a href="index.html">Anasayfa</a>
+            <button id="logoutBtn" class="linklike">Çıkış</button>
+            <button id="theme-toggle" class="linklike">Tema Değiştir</button>
+        </nav>
+    </header>
+
+    <main class="container">
+        <h1>Yönetim Paneli</h1>
+        <div class="admin-card">
+            <form id="post-form">
+                <div>
+                    <label class="admin-label">Başlık</label>
+                    <input class="admin-input" type="text" name="title" required>
+                </div>
+                <div>
+                    <label class="admin-label">Slug (oto)</label>
+                    <input class="admin-input" type="text" name="slug" placeholder="boş bırakabilirsiniz">
+                </div>
+                <div>
+                    <label class="admin-label">Kategori</label>
+                    <input class="admin-input" type="text" name="category" placeholder="Örn: Teknoloji, Günlük">
+                </div>
+                <div>
+                    <label class="admin-label">Kapak Görseli URL</label>
+                    <input class="admin-input" type="text" name="image" placeholder="Görsel URL'si (isteğe bağlı)">
+                </div>
+                <label class="admin-label">İçerik</label>
+                <div id="editor-container"></div>
+                
+                <div style="display:flex; align-items:center; gap:8px; margin-top:20px;">
+                    <label><input type="checkbox" name="published" checked> Yayında</label>
+                    <button type="submit" class="admin-btn primary">Kaydet</button>
+                    <button type="button" class="admin-btn secondary" id="resetForm">Temizle</button>
+                </div>
+                <input type="hidden" name="id">
+            </form>
+        </div>
+
+        <div id="list" class="admin-card">
+            <h2>Yazılar</h2>
+            <table class="admin-table">
+                <thead>
+                    <tr><th>Başlık</th><th>Kategori</th><th>Durum</th><th>Tarih</th><th>İşlem</th></tr>
+                </thead>
+                <tbody id="rows"></tbody>
+            </table>
+        </div>
+
+        <div class="admin-card">
+            <h2>Şifre Değiştir</h2>
+            <form id="pw-form" class="admin-pw-form">
+                <label class="admin-label">Yeni Şifre</label>
+                <input class="admin-input" type="password" name="pw" required>
+                <div>
+                    <button type="submit" class="admin-btn primary">Güncelle</button>
+                </div>
+                <p class="muted" id="pw-msg"></p>
+            </form>
+        </div>
+    </main>
+    <footer class="container footer">
+        <p>&copy; <span id="year"></span> Sanal Köşe</p>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/quill@2/dist/quill.js"></script>
+    <script type="module">
+        import { getAuth, onAuthStateChanged, signOut, updatePassword } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, doc, deleteDoc, updateDoc, query, orderBy, getDoc } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyA-cOHc81SNMX_u0CmpLtnKRS4sNedlN9E",
+            authDomain: "blog-sayfa.firebaseapp.com",
+            projectId: "blog-sayfa",
+            storageBucket: "blog-sayfa.appspot.com",
+            messagingSenderId: "610980157440",
+            appId: "1:610980157440:web:2409920a6b9ecc28efa0e5",
+            measurementId: "G-EF2PN951C7"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        onAuthStateChanged(auth, user => {
+            if (!user) {
+                location.href = "login.html";
+            }
+        });
+
+        const editor = new Quill('#editor-container', { theme: 'snow' });
+
+        document.getElementById('year').textContent = new Date().getFullYear();
+        const form = document.getElementById('post-form');
+        const rowsEl = document.getElementById('rows');
+        const resetBtn = document.getElementById('resetForm');
+        const pwForm = document.getElementById('pw-form');
+        const pwMsg = document.getElementById('pw-msg');
+        
+        document.getElementById('theme-toggle').addEventListener('click', () => {
+            const body = document.body;
+            body.classList.toggle('light');
+            if (body.classList.contains('light')) {
+                localStorage.setItem('theme', 'light');
+            } else {
+                localStorage.setItem('theme', 'dark');
+            }
+        });
+        if (localStorage.getItem('theme') === 'light') {
+            document.body.classList.add('light');
+        }
+
+        document.getElementById('logoutBtn').addEventListener('click', async () => {
+            await signOut(auth);
+        });
+
+        const slugify = text => text.toString().normalize("NFKD").replace(/[\u0300-\u036F]/g, '').replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/[\s_-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || `yazi-${Date.now()}`;
+        const formatDate = ts => new Date(ts).toLocaleString('tr-TR');
+
+        async function loadPosts() {
+            const q = query(collection(db, "posts"), orderBy("createdAt", "desc"));
+            const snapshot = await getDocs(q);
+            rowsEl.innerHTML = snapshot.docs.map(docSnap => {
+                const p = { id: docSnap.id, ...docSnap.data() };
+                return `
+                    <tr>
+                        <td><a href="post.html?slug=${p.slug}" target="_blank">${p.title}</a></td>
+                        <td>${p.category || "Genel"}</td>
+                        <td>${p.published ? '<span class="badge">Yayında</span>' : '<span class="badge">Taslak</span>'}</td>
+                        <td>${formatDate(p.createdAt?.toDate())}</td>
+                        <td>
+                            <button data-act="edit" data-id="${p.id}" class="admin-btn secondary">Düzenle</button>
+                            <button data-act="del" data-id="${p.id}" class="admin-btn danger">Sil</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const fd = new FormData(form);
+            const id = fd.get('id');
+            const title = fd.get('title').trim();
+            let slug = fd.get('slug').trim();
+            const category = fd.get('category').trim();
+            const image = fd.get('image').trim();
+            const content = editor.root.innerHTML;
+            const published = !!fd.get('published');
+
+            if (!slug) slug = slugify(title);
+
+            const data = {
+                title, slug, category, image, content, published
+            };
+
+            if (id) {
+                const docRef = doc(db, "posts", id);
+                await updateDoc(docRef, {
+                    ...data,
+                    updatedAt: new Date()
+                });
+            } else {
+                await addDoc(collection(db, "posts"), {
+                    ...data,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                });
+            }
+            clearForm();
+            loadPosts();
+        });
+
+        rowsEl.addEventListener('click', async (e) => {
+            const btn = e.target.closest('button');
+            if (!btn) return;
+            const id = btn.dataset.id;
+            if (btn.dataset.act === 'del') {
+                if (confirm('Silinsin mi?')) {
+                    await deleteDoc(doc(db, "posts", id));
+                    loadPosts();
+                }
+            } else if (btn.dataset.act === 'edit') {
+                const docRef = doc(db, "posts", id);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    const p = docSnap.data();
+                    form.querySelector('input[name=id]').value = docSnap.id;
+                    form.querySelector('input[name=title]').value = p.title;
+                    form.querySelector('input[name=slug]').value = p.slug;
+                    form.querySelector('input[name=category]').value = p.category;
+                    form.querySelector('input[name=image]').value = p.image || "";
+                    editor.root.innerHTML = p.content;
+                    form.querySelector('input[name=published]').checked = !!p.published;
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+            }
+        });
+
+        function clearForm() {
+            form.reset();
+            editor.setContents([{ insert: '' }]);
+            form.querySelector('input[name=id]').value = '';
+            form.querySelector('input[name=slug]').value = '';
+            form.querySelector('input[name=title]').focus();
+        }
+
+        resetBtn.addEventListener('click', clearForm);
+
+        pwForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const pw = pwForm.pw.value.trim();
+            if (pw.length < 6) { 
+                pwMsg.textContent = 'Şifre en az 6 karakter olmalı.';
+                pwMsg.style.color = "red";
+                return; 
+            }
+            const user = auth.currentUser;
+            if (user) {
+                await updatePassword(user, pw);
+                pwMsg.textContent = 'Şifre güncellendi.';
+                pwMsg.style.color = "green";
+                pwForm.reset();
+            }
+        });
+
+        loadPosts();
+    </script>
+</body>
+</html>

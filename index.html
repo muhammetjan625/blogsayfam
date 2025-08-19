@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sessiz Düşünceler Blogu</title>
+    <link rel="stylesheet" href="styles.css">
+    <meta name="description" content="Sessiz Düşünceler blogu, güncel konular ve kişisel deneyimler üzerine yazılar içerir.">
+    <meta property="og:title" content="Sessiz Düşünceler Blogu">
+    <meta property="og:description" content="Kategoriler ve etiketler ile organize edilmiş blog yazıları.">
+    <meta property="og:url" content="https://www.ornekblog.com">
+    <meta property="og:type" content="website">
+</head>
+<body>
+<div class="container">
+    <header class="header">
+        <a class="brand" href="index.html">Sessiz Düşünceler</a>
+        <nav>
+            <a href="admin.html">GİRMEK TEHLİKELİ</a>
+            <button id="theme-toggle" class="linklike">Tema Değiştir</button>
+        </nav>
+    </header>
+
+    <div class="card" style="padding-top:10px;">
+        <h2>Kategoriler</h2>
+        <div id="categories-container" style="display:flex; gap: 8px; flex-wrap: wrap;">
+            </div>
+    </div>
+
+    <div class="card" style="padding-top:10px;">
+        <h2>Yazı Ara</h2>
+        <input class="input" type="search" id="search-input" placeholder="Başlık veya içerik ara...">
+    </div>
+
+    <h1>Son Yazılar</h1>
+    <div id="posts"></div>
+</div>
+
+<footer class="container footer">
+    <p>&copy; <span id="year"></span> Sessiz Düşünceler Blogu</p>
+</footer>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+    import { getFirestore, collection, getDocs, query, orderBy, where } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyA-cOHc81SNMX_u0CmpLtnKRS4sNedlN9E",
+        authDomain: "blog-sayfa.firebaseapp.com",
+        projectId: "blog-sayfa",
+        storageBucket: "blog-sayfa.appspot.com",
+        messagingSenderId: "610980157440",
+        appId: "1:610980157440:web:2409920a6b9ecc28efa0e5",
+        measurementId: "G-EF2PN951C7"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    document.getElementById('year').textContent = new Date().getFullYear();
+    const postsEl = document.getElementById('posts');
+    const categoriesContainer = document.getElementById('categories-container');
+    const searchInput = document.getElementById('search-input');
+    
+    // URL'deki parametreleri oku
+    const urlParams = new URLSearchParams(window.location.search);
+    let selectedCategory = urlParams.get('category');
+    let selectedTag = urlParams.get('tag');
+
+    // Tema Değiştirme
+    document.getElementById('theme-toggle').addEventListener('click', () => {
+        const body = document.body;
+        body.classList.toggle('light');
+        if (body.classList.contains('light')) {
+            localStorage.setItem('theme', 'light');
+        } else {
+            localStorage.setItem('theme', 'dark');
+        }
+    });
+
+    if (localStorage.getItem('theme') === 'light') {
+        document.body.classList.add('light');
+    }
+
+    async function loadCategories() {
+        const q = query(collection(db, "posts"));
+        const snapshot = await getDocs(q);
+        const categories = new Set();
+        snapshot.forEach(docSnap => {
+            const p = docSnap.data();
+            if (p.category) {
+                categories.add(p.category);
+            }
+        });
+
+        categoriesContainer.innerHTML = '';
+        const allBtn = document.createElement('button');
+        allBtn.textContent = 'Tümü';
+        allBtn.classList.add('category-filter-btn');
+        allBtn.onclick = () => {
+            window.location.href = 'index.html';
+        };
+        categoriesContainer.appendChild(allBtn);
+
+        categories.forEach(cat => {
+            const btn = document.createElement('button');
+            btn.textContent = cat;
+            btn.classList.add('category-filter-btn');
+            btn.onclick = () => {
+                window.location.href = `index.html?category=${encodeURIComponent(cat)}`;
+            };
+            categoriesContainer.appendChild(btn);
+        });
+    }
+
+    async function loadPosts() {
+        let q;
+        let baseQuery = query(collection(db, "posts"), where("published", "==", true));
+
+        if (selectedCategory) {
+            q = query(baseQuery, where("category", "==", selectedCategory), orderBy("createdAt", "desc"));
+        } else if (selectedTag) {
+            q = query(baseQuery, where("tags", "array-contains", selectedTag), orderBy("createdAt", "desc"));
+        } else {
+            q = query(baseQuery, orderBy("createdAt", "desc"));
+        }
+
+        const snapshot = await getDocs(q);
+
+        if (snapshot.empty) {
+            postsEl.innerHTML = '<div class="card"><p>Henüz yayınlanmış bir yazı bulunmuyor.</p></div>';
+            return;
+        }
+
+        const posts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const searchTerm = searchInput.value.trim().toLowerCase();
+        const filteredPosts = posts.filter(p =>
+            p.title.toLowerCase().includes(searchTerm) || p.content.toLowerCase().includes(searchTerm)
+        );
+
+        renderPosts(filteredPosts);
+    }
+    
+    function renderPosts(posts) {
+        postsEl.innerHTML = '';
+        if (posts.length === 0) {
+            postsEl.innerHTML = '<div class="card"><p>Arama sonuçlarıyla eşleşen yazı bulunmuyor.</p></div>';
+            return;
+        }
+        posts.forEach(p => {
+            const div = document.createElement('div');
+            const truncatedContent = p.content.replace(/<[^>]*>?/gm, '').slice(0, 200) + (p.content.length > 200 ? '...' : '');
+            div.innerHTML = `
+                <article class="card">
+                    ${p.image ? `<img src="${p.image}" alt="${p.title}" class="post-cover-image">` : ''}
+                    <h2><a href="post.html?slug=${encodeURIComponent(p.slug)}">${p.title}</a></h2>
+                    <p class="muted">${p.category || 'Genel'} | ${new Date(p.createdAt?.toDate()).toLocaleDateString()}</p>
+                    <div class="post-content-preview">${truncatedContent}</div>
+                    <div style="margin-top: 10px;">
+                        ${p.tags ? p.tags.map(tag => `<a href="index.html?tag=${encodeURIComponent(tag)}" class="badge">${tag}</a>`).join('') : ''}
+                    </div>
+                </article>
+            `;
+            postsEl.appendChild(div);
+        });
+    }
+
+    searchInput.addEventListener('input', () => {
+        loadPosts();
+    });
+
+    loadCategories();
+    loadPosts();
+</script>
+</body>
+</html>

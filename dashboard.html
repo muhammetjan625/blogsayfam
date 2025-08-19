@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Yönetim Paneli -Sanal Köşe</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="container header">
+    <a class="brand" href="index.html">Sanal Köşe</a>
+    <nav>
+      <a href="index.html">Anasayfa</a>
+      <button id="logoutBtn" class="linklike">Çıkış</button>
+    </nav>
+  </header>
+  <main class="container">
+    <h1>Yönetim Paneli</h1>
+    <div class="card">
+      <form id="post-form">
+        <div class="form-row">
+          <div>
+            <label>Başlık</label>
+            <input class="input" type="text" name="title" required>
+          </div>
+          <div>
+            <label>Slug (oto)</label>
+            <input class="input" type="text" name="slug" placeholder="bos bırakabilirsiniz">
+          </div>
+        </div>
+
+        <!-- ✅ Yeni kategori alanı -->
+        <div class="form-row">
+          <div style="flex:1;">
+            <label>Kategori</label>
+            <input class="input" type="text" name="category" placeholder="Örn: Teknoloji, Günlük">
+          </div>
+        </div>
+
+        <label>İçerik</label>
+        <textarea class="input" name="content" rows="8" required></textarea>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+          <label><input type="checkbox" name="published" checked> Yayında</label>
+          <button type="submit">Kaydet</button>
+          <button type="button" class="secondary" id="resetForm">Temizle</button>
+        </div>
+        <input type="hidden" name="id">
+      </form>
+    </div>
+
+    <div id="list" class="card">
+      <h2>Yazılar</h2>
+      <table class="table">
+        <thead>
+          <tr><th>Başlık</th><th>Kategori</th><th>Durum</th><th>Tarih</th><th>İşlem</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Şifre Değiştir</h2>
+      <form id="pw-form">
+        <label>Yeni Şifre</label>
+        <input class="input" type="password" name="pw" required>
+        <div style="margin-top:8px;">
+          <button type="submit">Güncelle</button>
+        </div>
+        <p class="muted" id="pw-msg"></p>
+      </form>
+    </div>
+  </main>
+  <footer class="container footer">
+    <p>&copy; <span id="year"></span> Sanal Köşe</p>
+  </footer>
+
+  <script type="module">
+    import { requireAuthOrRedirect, logout, changePassword } from "./auth.js";
+    import { ensureSeed, getAllPosts, upsertPost, deletePost, getPostById } from "./storage.js";
+    import { slugify, formatDate } from "./util.js";
+
+    requireAuthOrRedirect();
+    document.getElementById('year').textContent = new Date().getFullYear();
+    ensureSeed();
+
+    const rowsEl = document.getElementById('rows');
+    const form = document.getElementById('post-form');
+    const resetBtn = document.getElementById('resetForm');
+
+    function render() {
+      const posts = getAllPosts();
+      rowsEl.innerHTML = posts.map(p => `
+        <tr>
+          <td><a href="post.html?slug=${encodeURIComponent(p.slug)}" target="_blank">${p.title}</a></td>
+          <td>${p.category || "Genel"}</td>
+          <td>${p.published ? '<span class="badge">Yayında</span>' : '<span class="badge">Taslak</span>'}</td>
+          <td>${formatDate(p.createdAt)}</td>
+          <td>
+            <button data-act="edit" data-id="${p.id}" class="secondary">Düzenle</button>
+            <button data-act="del" data-id="${p.id}" class="danger">Sil</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function clearForm() {
+      form.reset();
+      form.querySelector('input[name=id]').value = '';
+      form.querySelector('input[name=slug]').value = '';
+      form.querySelector('input[name=title]').focus();
+    }
+
+    rowsEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      const id = Number(btn.dataset.id);
+      if (btn.dataset.act === 'edit') {
+        const p = getPostById(id);
+        if (!p) return;
+        form.querySelector('input[name=id]').value = p.id;
+        form.querySelector('input[name=title]').value = p.title;
+        form.querySelector('input[name=slug]').value = p.slug;
+        form.querySelector('input[name=category]').value = p.category || "";
+        form.querySelector('textarea[name=content]').value = p.content;
+        form.querySelector('input[name=published]').checked = !!p.published;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else if (btn.dataset.act === 'del') {
+        if (confirm('Silinsin mi?')) {
+          deletePost(id);
+          render();
+        }
+      }
+    });
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const id = Number(fd.get('id')) || crypto.getRandomValues(new Uint32Array(1))[0];
+      const title = String(fd.get('title') || '').trim();
+      let slug = String(fd.get('slug') || '').trim();
+      const category = String(fd.get('category') || '').trim(); // ✅ yeni alan
+      const content = String(fd.get('content') || '').trim();
+      const published = !!fd.get('published');
+      if (!title || !content) return;
+      if (!slug) slug = slugify(title);
+      const existing = getAllPosts().find(p => p.slug === slug && p.id !== id);
+      if (existing) { alert('Aynı slug mevcut, değiştirin.'); return; }
+      const now = Date.now();
+      const prev = getPostById(id);
+      const post = {
+        id,
+        title,
+        slug,
+        category, // ✅ kaydediliyor
+        content,
+        published,
+        createdAt: prev?.createdAt || now,
+        updatedAt: now
+      };
+      upsertPost(post);
+      render();
+      clearForm();
+    });
+
+    resetBtn.addEventListener('click', clearForm);
+    render();
+
+    // logout
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+      logout();
+      location.href = 'index.html';
+    });
+
+    // pw change
+    const pwForm = document.getElementById('pw-form');
+    pwForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pw = pwForm.pw.value.trim();
+      if (pw.length < 6) { alert('Şifre en az 6 karakter olmalı.'); return; }
+      await changePassword(pw);
+      document.getElementById('pw-msg').textContent = 'Şifre güncellendi.';
+      pwForm.reset();
+    });
+  </script>
+</body>
+</html>
